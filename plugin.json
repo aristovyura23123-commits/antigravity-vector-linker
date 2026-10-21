@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vector-linker",
+  "version": "1.0.0",
+  "description": "Интеллектуальная векторная перелинковка для Antigravity CLI на основе семантических эмбеддингов (TF-IDF N-grams, Cosine Similarity), расчета внутреннего PageRank и автоматического подбора контекстных анкоров.",
+  "author": {
+    "name": "aristovyura23123-commits"
+  },
+  "keywords": [
+    "antigravity",
+    "antigravity-plugin",
+    "seo",
+    "internal-linking",
+    "vector-search",
+    "embeddings",
+    "semantic-search",
+    "pagerank",
+    "topic-clusters"
+  ],
+  "license": "MIT",
+  "repository": "https://github.com/aristovyura23123-commits/antigravity-vector-linker"
+}
