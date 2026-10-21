@@ -131,3 +131,98 @@ def crawl_site_pages(article_urls, category_urls, max_workers=10):
     
     clean_pages = [p for p in results if p is not None and len(p['text']) > 15]
     return clean_pages
+
+def load_screaming_frog_data(internal_all_path, inlinks_path=None, target_pages_path=None):
+    """
+    Imports crawl and linking data from Screaming Frog / Sitebulb CSV exports (ILIS v2.0 Section 4).
+    Supports internal_all.csv, inlinks.csv, and target_pages.csv.
+    """
+    import csv
+
+    def read_csv_safe(path):
+        for enc in ['utf-8-sig', 'utf-8', 'cp1251', 'latin1']:
+            try:
+                with open(path, 'r', encoding=enc) as f:
+                    sample = f.read(2048)
+                    delimiter = ';' if ';' in sample and sample.count(';') > sample.count(',') else ','
+                    f.seek(0)
+                    reader = csv.DictReader(f, delimiter=delimiter)
+                    return list(reader)
+            except UnicodeDecodeError:
+                continue
+        return []
+
+    # 1. Target pages
+    target_urls = set()
+    target_meta = {}
+    if target_pages_path:
+        rows = read_csv_safe(target_pages_path)
+        for r in rows:
+            u = (r.get('Address') or r.get('URL') or r.get('url') or '').strip().rstrip('/')
+            if u:
+                target_urls.add(u)
+                target_meta[u] = {
+                    'priority': r.get('Приоритет') or r.get('Priority') or 'High',
+                    'keyword': r.get('Основной запрос') or r.get('Target Keyword') or '',
+                    'page_type': r.get('Тип страницы') or r.get('Type') or ''
+                }
+
+    # 2. Internal all pages
+    pages = []
+    if internal_all_path:
+        rows = read_csv_safe(internal_all_path)
+        for r in rows:
+            u = (r.get('Address') or r.get('URL') or r.get('url') or '').strip().rstrip('/')
+            if not u:
+                continue
+
+            status_code = int(r.get('Status Code', 200)) if str(r.get('Status Code', '')).isdigit() else 200
+            indexability = r.get('Indexability', 'Indexable')
+            is_indexable = 'non' not in indexability.lower() and status_code == 200
+
+            title = r.get('Title 1') or r.get('Title') or r.get('title') or u
+            h1 = r.get('H1-1') or r.get('H1') or r.get('h1') or title
+            ls = float(r.get('Link Score', 0.0)) if r.get('Link Score') else 10.0
+            u_in = int(r.get('Unique Inlinks', 0)) if str(r.get('Unique Inlinks', '')).isdigit() else 0
+            u_out = int(r.get('Unique Outlinks', 0)) if str(r.get('Unique Outlinks', '')).isdigit() else 0
+            depth = int(r.get('Crawl Depth', 1)) if str(r.get('Crawl Depth', '')).isdigit() else 1
+
+            is_art = bool(re.search(r'/articles/|/blog/|/news/|/post/', u, re.I))
+
+            pages.append({
+                'url': u,
+                'title': title,
+                'h1': h1,
+                'text': title + ' ' + h1,
+                'links': [],
+                'link_score': ls,
+                'unique_inlinks': u_in,
+                'unique_outlinks': u_out,
+                'crawl_depth': depth,
+                'indexable': is_indexable,
+                'status_code': status_code,
+                'is_article': is_art,
+                'is_target': u in target_urls,
+                'target_meta': target_meta.get(u, {})
+            })
+
+    # 3. Inlinks
+    inlinks = []
+    if inlinks_path:
+        rows = read_csv_safe(inlinks_path)
+        for r in rows:
+            src = (r.get('From') or r.get('Source') or '').strip().rstrip('/')
+            tgt = (r.get('To') or r.get('Destination') or '').strip().rstrip('/')
+            anc = (r.get('Anchor Text') or r.get('Anchor') or r.get('Alt Text') or '').strip()
+            follow = (r.get('Follow') or 'true').lower() in ['true', 'follow']
+            pos = r.get('Link Position') or r.get('Position') or 'контекст'
+            if src and tgt:
+                inlinks.append({
+                    'from': src,
+                    'to': tgt,
+                    'anchor': anc,
+                    'follow': follow,
+                    'position': pos
+                })
+
+    return pages, inlinks, target_urls

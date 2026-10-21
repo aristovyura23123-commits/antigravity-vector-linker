@@ -1,56 +1,68 @@
 ---
 name: vector-linker
-argument-hint: "<sitemap URL, e.g. https://example.com/sitemap.xml or article and category URLs>"
+argument-hint: "<sitemap URL or Screaming Frog CSV files: internal_all.csv, inlinks.csv, target_pages.csv>"
 description: >
-  Интеллектуальная векторная перелинковка сайтов на основе семантических эмбеддингов
-  (TF-IDF N-grams, Cosine Similarity), моделирования графа внутреннего PageRank
-  и автоматического подбора контекстных анкоров внутри текста. Находит скрытые
-  смысловые связи между блогом и каталогом, устраняет изолированные страницы-«сироты»
-  и формирует тематические кластеры (Topic Clusters). Используйте этот навык при
-  запросах: "перелинковка", "векторная перелинковка", "внутренние ссылки",
-  "перелинковать статьи", "semantic linking", "vector linker", "topic clusters",
-  "связать блог с каталогом", "распределение pagerank".
+  Интеллектуальная система анализа внутренней перелинковки ILIS v2.0 (Internal Linking Intelligence System)
+  и векторного связывания страниц. Вычисляет процентили ссылочного веса, индексы IE и CR, проводит
+  аудит страниц-сирот (Orphan Pages) и анкорной каннибализации, применяет 6-факторный Decision Tree отбор
+  доноров и подбирает контекстные анкоры со строгим правилом «1 предложение = 1 ссылка».
+  Используйте при запросах: "перелинковка", "векторная перелинковка", "внутренние ссылки",
+  "ilis", "ilis v2", "internal linking", "orphan pages", "страницы сироты", "аудит перелинковки",
+  "screaming frog перелинковка", "topic clusters", "кросс-линкинг", "распределение pagerank".
 ---
 
-# Vector Semantic Linker — Навык векторной перелинковки
+# ILIS v2.0 & Vector Semantic Linker — Интеллектуальная перелинковка
 
-Этот навык автоматизирует построение ссылочного графа сайта: находит идеальные пары страниц для перелинковки, рассчитывает передаваемый PageRank и подбирает точное предложение в тексте статьи-донора для естественной вставки анкора.
+Этот навык реализует методологию **ILIS (Internal Linking Intelligence System) v2.0** в сочетании с алгоритмами векторного анализа текстов (Russian Snowball Stemmer, TF-IDF 1-2 N-grams, Cosine Similarity, Head Entity Intent Gating).
 
-## Когда использовать
-- Связка контентного блога (информационные статьи) с коммерческими категориями каталога (страницы услуг/товаров).
-- Формирование тематических кластеров (Topic Clusters / Topic Authority): перелинковка статей друг с другом.
-- Ликвидация страниц-«сирот» (Orphan Pages) с нулевым или минимальным входящим весом.
-- Устранение переспама: замена сквозных одинаковых ссылок точечными контекстными анкорами.
+## 6 Обязательных принципов ILIS
+1. **Достоверность**: выводы строятся исключительно на данных краулинга или выгрузки Screaming Frog.
+2. **Объяснимость (Evidence)**: каждая рекомендация сопровождается доказательной базой (Link Score, Crawl Depth, Inlinks, IE).
+3. **Многофакторность**: решение принимается минимум по 2–3 независимым метрикам.
+4. **Разделение фактов и рекомендаций**: факты из данных, аналитический статус (🟡 🟠 🔴 ⏹ ✅) и конкретное действие.
+5. **Отсутствие домыслов**: ссылки не ставятся с неиндексируемых или битых страниц; нерелевантные сущности блокируются шлюзом Entity Gate.
+6. **Пользовательская ценность**: анкоры сохраняют естественный синтаксис предложения автора (строго 1 ссылка на 1 предложение).
+
+## Режимы работы
+- **Режим 1 (Target Pages Boost)**: анализ и приоритетное усиление списка целевых коммерческих страниц (`--target-pages target_pages.csv`).
+- **Режим 2 (Full Site Audit)**: полный сквозной аудит ссылочной структуры всего сайта по карте сайта или `internal_all.csv`.
 
 ## Как запустить анализ
 
-### 1. По карте сайта (Sitemap XML):
+### 1. По карте сайта (Sitemap XML) — автономный краулинг:
 ```bash
 python3 ~/.gemini/config/plugins/vector-linker/scripts/linker_cli.py \
   --sitemap "https://example.com/sitemap.xml" \
   --articles-pattern "/articles/|/blog/|/news/" \
   --catalog-pattern "/catalog/|/services/|/products/" \
-  --output-html "vector_linker_report.html" \
-  --output-csv "vector_linker_report.csv"
+  --output-html "ilis_report.html" \
+  --output-csv "ilis_report.csv"
 ```
 
-### 2. По конкретным спискам URL:
+### 2. По выгрузкам Screaming Frog / Sitebulb CSV:
 ```bash
 python3 ~/.gemini/config/plugins/vector-linker/scripts/linker_cli.py \
-  --articles-urls "https://example.com/blog/art1/,https://example.com/blog/art2/" \
-  --categories-urls "https://example.com/catalog/cat1/,https://example.com/catalog/cat2/" \
-  --output-html "report.html"
+  --internal-all "internal_all.csv" \
+  --inlinks "inlinks.csv" \
+  --target-pages "target_pages.csv" \
+  --output-html "ilis_report.html" \
+  --output-csv "ilis_report.csv"
 ```
 
-## Многонаправленные потоки перелинковки v2.5
-1. **Статья ➔ Каталог (в тексте)**: коммерческая перелинковка со строгой дедупликацией (1 предложение = максимум 1 ссылка).
-2. **Каталог ➔ Каталог (в тексте описаний)**: горизонтальный кросс-линкинг между сопутствующими товарными категориями.
-3. **Каталог ➔ Статья (E-E-A-T)**: гиды покупателя и экспертные руководства для коммерческих разделов.
-4. **Статья ➔ Статья (Topic Clusters)**: перелинковка статей внутри тематического кластера.
-5. **Готовые HTML-блоки для CMS**: сгенерированные адаптивные виджеты со ссылками на категории и статьи.
-6. **Ориентированный граф PageRank**: сквозное моделирование прироста ссылочного веса страниц.
+### 3. По конкретным спискам URL:
+```bash
+python3 ~/.gemini/config/plugins/vector-linker/scripts/linker_cli.py \
+  --articles-urls "https://example.com/blog/art1,https://example.com/blog/art2" \
+  --categories-urls "https://example.com/catalog/cat1,https://example.com/catalog/cat2" \
+  --output-html "ilis_report.html"
+```
 
-## Форматы отчётов
-- **Интерактивный HTML дашборд**: таблица рекомендаций, подсвеченные предложения в статьях, прирост PageRank.
-- **CSV выгрузка**: готовый файл для передачи копирайтерам или контент-менеджерам.
-- **JSON граф**: топология узлов и ребер для визуализации в D3.js.
+## Алгоритмические модули ILIS v2.0
+1. **Процентильная классификация**: оценка Link Score, Inlinks и Crawl Depth относительно распределения конкретного сайта.
+2. **Метрики эффективности**: расчет $IE = \text{LinkScore} / \text{Outlinks}$ и коэффициента связанности $CR = \text{Inlinks} / \text{Outlinks}$.
+3. **Orphan Pages Audit**: классификация изолированных страниц (*True Orphan*, *Indexed Orphan*, *Potential Orphan*) и план действий.
+4. **Anchor Profile & Cannibalization**: обнаружение конфликтов, когда один анкор ссылается на разные URL.
+5. **6-факторная модель оценки донора**:
+   $$\text{Score} = 0.35 \times \text{Семантика} + 0.25 \times \text{LinkScore} + 0.15 \times \text{Глубина} + 0.10 \times \text{Outlinks} + 0.10 \times \text{SILO} + 0.05 \times \text{Приоритет}$$
+6. **Sentence Deduplication**: запрет на пересечение ссылок внутри одного предложения.
+7. **Готовые HTML-блоки (CMS виджеты)**: генерация адаптивных блоков ссылок для шаблонов страниц.

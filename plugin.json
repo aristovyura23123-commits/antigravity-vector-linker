@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "vector-linker",
-  "version": "2.5.0",
-  "description": "Многонаправленная векторная перелинковка для Antigravity CLI: строгая дедупликация (1 предложение = 1 ссылка), кросс-линкинг Каталог ➔ Каталог, E-E-A-T гиды, генерация готовых HTML-блоков и расчет PageRank.",
+  "version": "3.0.0",
+  "description": "Интеллектуальная система анализа внутренней перелинковки ILIS v2.0 & Vector Semantic Linker: процентили ссылочного веса, метрики IE/CR, аудит страниц-сирот (Orphans), анкорная каннибализация, 6-факторный отбор доноров и импорт Screaming Frog CSV.",
   "author": {
     "name": "aristovyura23123-commits"
   },
