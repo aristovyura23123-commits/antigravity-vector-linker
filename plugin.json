@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "vector-linker",
-  "version": "1.0.0",
-  "description": "Интеллектуальная векторная перелинковка для Antigravity CLI на основе семантических эмбеддингов (TF-IDF N-grams, Cosine Similarity), расчета внутреннего PageRank и автоматического подбора контекстных анкоров.",
+  "version": "2.0.0",
+  "description": "Интеллектуальная векторная перелинковка для Antigravity CLI на основе семантических эмбеддингов, двухэтапного Entity Intent Gating, расчета PageRank и точного извлечения контекстных анкор-фраз.",
   "author": {
     "name": "aristovyura23123-commits"
   },

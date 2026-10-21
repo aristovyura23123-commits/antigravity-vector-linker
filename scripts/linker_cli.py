@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI entrypoint for Antigravity Vector Semantic Linker.
+CLI entrypoint for Antigravity Vector Semantic Linker v2.0.
 Usage:
   python3 linker_cli.py --sitemap https://example.com/sitemap.xml --output-html report.html
 """
@@ -18,11 +18,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from crawler import parse_sitemap, crawl_site_pages
-from engine import VectorSemanticEngine, compute_internal_pagerank
+from engine import (
+    VectorSemanticEngine,
+    parse_category_components,
+    compute_internal_pagerank
+)
 from reporter import generate_html_report, export_csv_report, export_json_graph
 
 def main():
-    parser = argparse.ArgumentParser(description="Vector Semantic Linker for Antigravity CLI")
+    parser = argparse.ArgumentParser(description="Vector Semantic Linker v2.0 for Antigravity CLI")
     parser.add_argument("--sitemap", type=str, help="URL of sitemap.xml or sitemap index")
     parser.add_argument("--articles-urls", type=str, help="Comma-separated article URLs or path to file")
     parser.add_argument("--categories-urls", type=str, help="Comma-separated category URLs or path to file")
@@ -89,7 +93,7 @@ def main():
         print("Ошибка: не удалось извлечь контент страниц.")
         sys.exit(1)
 
-    print(f"🧠 Векторизация {len(pages)} страниц корпуса с использованием русского стемминга...")
+    print(f"🧠 Семантическая векторизация {len(pages)} страниц...")
     engine = VectorSemanticEngine()
     engine.fit_transform(pages)
 
@@ -97,49 +101,65 @@ def main():
     cat_count = len(categories)
 
     art_matrix = engine.tfidf_matrix[:art_count]
-    cat_matrix = engine.tfidf_matrix[art_count:]
-
-    sim_art_cat = cosine_similarity(art_matrix, cat_matrix)
     sim_art_art = cosine_similarity(art_matrix, art_matrix)
 
-    print("🔗 Расчёт семантических связей и подбор анкорных предложений...")
+    # Parse Category Components (Head Entity vs Modifiers)
+    cat_components = []
+    for c in categories:
+        h, m = parse_category_components(c['title'])
+        cat_components.append({
+            'url': c['url'],
+            'title': c['title'],
+            'head_stems': h,
+            'mod_stems': m
+        })
+
+    print("🛡 Двухэтапный семантический подбор анкоров (Entity Gate + In-Text Span Extraction)...")
     commercial_recs = []
 
     for i, art in enumerate(articles):
         existing_links = set(art['links'])
-        top_cats = np.argsort(sim_art_cat[i])[::-1]
+        candidate_matches = []
 
-        matches_count = 0
-        for cat_idx in top_cats:
-            raw_score = sim_art_cat[i][cat_idx]
-            cat = categories[cat_idx]
+        for cat in cat_components:
             clean_cat_url = cat['url'].rstrip('/')
+            if any(clean_cat_url in l for l in existing_links):
+                continue
 
-            has_link = any(clean_cat_url in l for l in existing_links)
+            # Strict Entity Gate + In-Text Anchor Extraction
+            anchor, raw_sent, html_sent, score = engine.find_best_sentence_match(
+                art['text'], cat['head_stems'], cat['mod_stems'], cat['url']
+            )
 
-            if raw_score >= 0.005 and not has_link:
-                best_sent, sent_score, sent_html = engine.find_best_sentence_anchor(
-                    art['text'], cat['title'], cat_matrix[cat_idx]
-                )
-
-                composite_score = min(99.0, max(45.0, (raw_score * 800 + sent_score * 300) / 2))
-
-                commercial_recs.append({
+            if anchor and score >= 10:
+                # Calculate normalized similarity
+                sim_pct = min(99.0, max(50.0, score * 4.5))
+                candidate_matches.append({
                     'article_url': art['url'],
                     'article_title': art['title'],
                     'target_url': cat['url'],
                     'target_title': cat['title'],
-                    'similarity': round(composite_score, 1),
-                    'sentence_raw': best_sent,
-                    'sentence_html': sent_html,
-                    'suggested_anchor': cat['title']
+                    'similarity': round(sim_pct, 1),
+                    'sentence_raw': raw_sent,
+                    'sentence_html': html_sent,
+                    'suggested_anchor': anchor,
+                    'raw_score': score
                 })
-                matches_count += 1
-                if matches_count >= 2:
-                    break
+
+        candidate_matches.sort(key=lambda x: x['raw_score'], reverse=True)
+
+        # Adaptive Relevance Floor: only keep links within 70% of top score, max 2
+        if candidate_matches:
+            top_s = candidate_matches[0]['raw_score']
+            for m in candidate_matches:
+                if m['raw_score'] >= top_s * 0.7:
+                    commercial_recs.append(m)
+                    if len([x for x in commercial_recs if x['article_url'] == art['url']]) >= 2:
+                        break
 
     commercial_recs.sort(key=lambda x: x['similarity'], reverse=True)
 
+    # Inter-article links (Topic Clusters)
     cluster_recs = []
     for i, art in enumerate(articles):
         top_arts = np.argsort(sim_art_art[i])[::-1]
@@ -193,7 +213,7 @@ def main():
         export_json_graph(nodes, edges, args.output_json)
         print(f"  ➜ JSON граф: {args.output_json}")
 
-    print(f"\n🎉 Готово! Найдено {len(commercial_recs)} связей Статья ➔ Каталог, расчётный прирост PageRank: +{pr_lift:.1f}%")
+    print(f"\n🎉 Анализ завершен! Найдено {len(commercial_recs)} валидных связей Статья ➔ Каталог, расчётный прирост PageRank: +{pr_lift:.1f}%")
 
 if __name__ == '__main__':
     main()

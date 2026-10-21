@@ -1,5 +1,5 @@
 """
-Unit tests for Vector Semantic Linker engine.
+Unit tests for Vector Semantic Linker v2.0 engine.
 """
 
 import unittest
@@ -11,9 +11,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 scripts_dir = os.path.abspath(os.path.join(current_dir, '..', 'scripts'))
 sys.path.insert(0, scripts_dir)
 
-from engine import stem_tokenizer, VectorSemanticEngine, compute_internal_pagerank
+from engine import (
+    stem_tokenizer,
+    parse_category_components,
+    extract_tight_anchor_span,
+    VectorSemanticEngine,
+    compute_internal_pagerank
+)
 
-class TestVectorLinkerEngine(unittest.TestCase):
+class TestVectorLinkerEngineV2(unittest.TestCase):
 
     def test_stem_tokenizer(self):
         tokens = stem_tokenizer("Как правильно выбрать детские ботинки для мальчика?")
@@ -22,17 +28,40 @@ class TestVectorLinkerEngine(unittest.TestCase):
         self.assertNotIn("как", tokens)
         self.assertNotIn("для", tokens)
 
-    def test_cosine_similarity(self):
+    def test_parse_category_components(self):
+        head, mod = parse_category_components("Обувь для мальчиков")
+        self.assertIn("обув", head)
+        self.assertIn("мальчик", mod)
+        self.assertNotIn("мальчик", head)
+
+        head2, mod2 = parse_category_components("Аксессуары для детских колясок и автокресел")
+        self.assertIn("колясок", head2)
+        self.assertIn("автокресел", head2)
+        self.assertNotIn("детск", head2)
+
+    def test_tight_anchor_span_extraction(self):
+        sentence = "Разнообразные модели детской весенней обуви для мальчиков и девочек предоставляют бренды."
+        head_stems = {"обув"}
+        mod_stems = {"мальчик", "для"}
+        target_url = "/catalog/obuv-dlya-malchikov/"
+        
+        anchor, html_sent = extract_tight_anchor_span(sentence, head_stems, mod_stems, target_url)
+        self.assertIsNotNone(anchor)
+        self.assertIn("обуви для мальчиков", anchor.lower())
+        self.assertIn(f'<a href="{target_url}"><strong>{anchor}</strong></a>', html_sent)
+
+    def test_entity_gate_blocks_irrelevant_category(self):
         engine = VectorSemanticEngine()
-        docs = [
-            {'title': 'Детская обувь и сапоги', 'text': 'Как выбрать зимние ботинки и обувь для ребенка'},
-            {'title': 'Зимние ботинки для мальчиков', 'text': 'Каталог качественной детской обуви и сапог'},
-            {'title': 'Школьный ранец и пенал', 'text': 'Купить ранец с ортопедической спинкой для школы'}
-        ]
-        engine.fit_transform(docs)
-        sim_related = engine.compute_similarity(0, 1)
-        sim_unrelated = engine.compute_similarity(0, 2)
-        self.assertGreater(sim_related, sim_unrelated)
+        shoe_article = "Свежий воздух и сырая погода. Выбираем качественные демисезонные ботинки и обувь для ребенка."
+        
+        stroller_head = {"колясок", "автокресел"}
+        stroller_mod = {"детск", "для"}
+        
+        anchor, raw_sent, html_sent, score = engine.find_best_sentence_match(shoe_article, stroller_head, stroller_mod, "/catalog/kolyaski/")
+        # MUST BE NONE! Stroller has 0 head matches in a shoe article!
+        self.assertIsNone(anchor)
+        self.assertIsNone(raw_sent)
+        self.assertIsNone(html_sent)
 
     def test_pagerank_computation(self):
         adj = np.array([
@@ -43,14 +72,6 @@ class TestVectorLinkerEngine(unittest.TestCase):
         pr = compute_internal_pagerank(adj)
         self.assertEqual(len(pr), 3)
         self.assertAlmostEqual(float(np.sum(pr)), 1.0, places=4)
-
-    def test_anchor_sentence_finder(self):
-        engine = VectorSemanticEngine()
-        doc = {'title': 'Тест', 'text': 'Первое предложение. Мы продаем качественные ботинки для детей. Третье предложение о погоде.'}
-        engine.fit_transform([doc, {'title': 'Ботинки для детей', 'text': ''}])
-        best_sent, score, html = engine.find_best_sentence_anchor(doc['text'], 'Ботинки для детей', engine.tfidf_matrix[1])
-        self.assertIn("ботинки", best_sent.lower())
-        self.assertGreater(score, 0.0)
 
 if __name__ == '__main__':
     unittest.main()
