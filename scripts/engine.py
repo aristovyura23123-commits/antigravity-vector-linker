@@ -145,20 +145,23 @@ class VectorSemanticEngine:
         vec2 = self.tfidf_matrix[idx2]
         return float(cosine_similarity(vec1, vec2)[0][0])
 
-    def find_best_sentence_match(self, source_text, head_stems, mod_stems, target_url):
+    def find_all_sentence_matches(self, source_text, head_stems, mod_stems, target_url, used_sentences=None, used_anchors=None):
         """
-        Splits source article into sentences and finds the sentence containing
+        Splits source text into sentences and finds all sentences containing
         verified head entity matches with a natural anchor span.
+        Filters out sentences in used_sentences and anchors in used_anchors.
+        Returns a list of tuples: (score, anchor, raw_sentence, html_sentence).
         """
         raw_sentences = re.split(r'(?<=[.!?])\s+', source_text)
         sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 20 and len(s.strip()) < 350]
         
-        best_sentence_html = None
-        best_sentence_raw = None
-        best_anchor = None
-        best_score = -1
-        
+        candidates = []
         for sent in sentences:
+            if used_sentences and sent in used_sentences:
+                continue
+            if re.search(r'найдено:\s*\d+|показывать по|фильтры|результатов|каталог \w+ каталог|согласие на обработку|персональных данных|подписаться на новости', sent, re.I):
+                continue
+                
             words = [STEMMER.stem(w.lower()) for w in re.findall(r'[а-яёa-z]+', sent)]
             head_count = sum(1 for w in words if w in head_stems)
             if head_count == 0:
@@ -168,13 +171,105 @@ class VectorSemanticEngine:
             sent_score = head_count * 10 + mod_count * 3
             
             anchor, html_sent = extract_tight_anchor_span(sent, head_stems, mod_stems, target_url)
-            if anchor and sent_score > best_score:
-                best_score = sent_score
-                best_sentence_html = html_sent
-                best_sentence_raw = sent
-                best_anchor = anchor
+            if not anchor:
+                continue
                 
-        return best_anchor, best_sentence_raw, best_sentence_html, best_score
+            anchor_norm = anchor.strip().lower()
+            if used_anchors and anchor_norm in used_anchors:
+                continue
+                
+            candidates.append((sent_score, anchor, sent, html_sent))
+            
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates
+
+    def find_best_sentence_match(self, source_text, head_stems, mod_stems, target_url, used_sentences=None, used_anchors=None):
+        """
+        Backward-compatible helper returning the single best sentence match.
+        """
+        candidates = self.find_all_sentence_matches(source_text, head_stems, mod_stems, target_url, used_sentences, used_anchors)
+        if candidates:
+            score, anchor, raw_sent, html_sent = candidates[0]
+            return anchor, raw_sent, html_sent, score
+        return None, None, None, -1
+
+    def allocate_page_in_text_links(self, source_url, source_title, source_text, candidate_targets, max_links=2, min_score=10):
+        """
+        Allocates in-text links for a single page with strict sentence deduplication:
+        - At most ONE link per sentence (no two links can share the same sentence).
+        - No duplicate anchor texts on the same page.
+        - Fallback: if target A takes sentence 1, target B must find sentence 2 or is skipped.
+        Returns a list of allocated link dictionaries.
+        """
+        used_sentences = set()
+        used_anchors = set()
+        allocated = []
+        
+        # Sort targets by global score/similarity descending
+        sorted_targets = sorted(candidate_targets, key=lambda x: x.get('score', 0), reverse=True)
+        
+        for tgt in sorted_targets:
+            matches = self.find_all_sentence_matches(
+                source_text,
+                tgt['head_stems'],
+                tgt['mod_stems'],
+                tgt['url'],
+                used_sentences=used_sentences,
+                used_anchors=used_anchors
+            )
+            
+            if not matches:
+                continue
+                
+            sent_score, anchor, raw_sent, html_sent = matches[0]
+            if sent_score < min_score:
+                continue
+                
+            # Reserve this sentence and anchor
+            used_sentences.add(raw_sent)
+            used_anchors.add(anchor.strip().lower())
+            
+            sim_pct = min(99.0, max(50.0, sent_score * 4.5))
+            allocated.append({
+                'source_url': source_url,
+                'source_title': source_title,
+                'target_url': tgt['url'],
+                'target_title': tgt['title'],
+                'similarity': round(sim_pct, 1),
+                'sentence_raw': raw_sent,
+                'sentence_html': html_sent,
+                'suggested_anchor': anchor,
+                'score': sent_score
+            })
+            
+            if len(allocated) >= max_links:
+                break
+                
+        return allocated
+
+def generate_html_link_block(block_type, heading, links):
+    """
+    Generates a production-ready, responsive HTML link block widget for CMS embedding.
+    block_type: 'catalog_for_article' | 'cluster_for_article' | 'cross_catalog' | 'guides_for_catalog'
+    links: list of dicts with 'url' and 'title'
+    """
+    if not links:
+        return ""
+        
+    items_html = "".join([f'    <li style="margin-bottom: 6px;"><a href="{l["url"]}" style="color: #4f46e5; text-decoration: none; font-weight: 500;">{l["title"]}</a></li>\n' for l in links])
+    
+    css_class = f"seo-link-block seo-block-{block_type}"
+    block_html = (
+        f'<div class="{css_class}" style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #4f46e5; border-radius: 8px; padding: 16px 20px; margin: 24px 0; font-family: inherit;">\n'
+        f'  <div style="font-weight: 700; font-size: 15px; color: #1e1b4b; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">\n'
+        f'    <span>🔗</span> <span>{heading}</span>\n'
+        f'  </div>\n'
+        f'  <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">\n'
+        f'{items_html}'
+        f'  </ul>\n'
+        f'</div>'
+    )
+    return block_html
 
 def compute_internal_pagerank(adj_matrix, num_iterations=50, d=0.85):
     """

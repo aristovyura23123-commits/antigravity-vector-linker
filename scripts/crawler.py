@@ -71,13 +71,30 @@ def extract_page_data(url, is_article=True):
         h1 = soup.find('h1')
         title = h1.get_text().strip() if h1 else (soup.title.string.strip() if soup.title else url)
 
-        # Detect article body container
-        content_container = (
-            soup.find('div', class_=re.compile(r'news-content|article|content-body|detail-text|post-content', re.I))
-            or soup.find('article')
-            or soup.find('main')
-            or soup.body
-        )
+        # Detect article or category content container
+        content_container = None
+        if is_article:
+            content_container = (
+                soup.find('div', class_=re.compile(r'news-content|article|content-body|detail-text|post-content', re.I))
+                or soup.find('article')
+                or soup.find('main')
+                or soup.body
+            )
+        else:
+            # Catalog page: isolate category description and SEO text
+            # Decompose product cards, item lists, modals, breadcrumbs, filters, and pagination
+            for tag in soup.find_all(class_=re.compile(r'breadcrumb|nav-chain|breadcrumbs|chain|filter|sorting|catalog-sort|product-card|catalog-grid|catalog-items|products-list|product-item|cookie|policy|popup|notification|cart-modal|basket|pagin', re.I)):
+                tag.decompose()
+            for tag in soup(['ol', 'ul']):
+                if any('breadcrumb' in str(c).lower() for c in tag.get('class', [])):
+                    tag.decompose()
+                
+            # Prefer explicit description containers if available, otherwise use cleaned body
+            content_container = (
+                soup.find('div', class_=re.compile(r'category-description|catalog-desc|seo-text|catalog-section-desc|section-description|category-text|catalog-bottom-text|cat-desc|desc', re.I))
+                or soup.find('main')
+                or soup.body
+            )
 
         in_body_links = []
         if content_container:
@@ -86,9 +103,13 @@ def extract_page_data(url, is_article=True):
                 if href and not href.startswith(('javascript:', 'tel:', 'mailto:')):
                     in_body_links.append(urljoin(url, href).rstrip('/'))
 
-            text = content_container.get_text(separator=' ', strip=True)
+            # Extract clean meaningful text
+            raw_text = content_container.get_text(separator=' ', strip=True)
+            # Remove repeated shopping button noises
+            cleaned_text = re.sub(r'\b(\d+\s*руб(\.|лей)?|купить в 1 клик|в корзину|быстрый просмотр|артикул:?\s*\w+)\b', ' ', raw_text, flags=re.I)
+            text = ' '.join(cleaned_text.split())
         else:
-            text = soup.get_text(separator=' ', strip=True)
+            text = ' '.join(soup.get_text(separator=' ', strip=True).split())
 
         return {
             'url': url.rstrip('/'),
